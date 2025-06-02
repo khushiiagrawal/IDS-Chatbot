@@ -43,6 +43,3 @@ A customer support chatbot for Intrusion Detection Systems (IDS) built with Stre
 - How to handle false positives in IDS?
 - What's the difference between IDS and IPS?
 
-## Note
-
-Make sure to keep your API key secure and never commit it to version control. 
