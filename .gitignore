@@ -1,0 +1,14 @@
+.env
+venv/
+__pycache__/
+tf_cache/
+venv
+.DS_Store
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+*.pywz
+*.pyzw
+*.pyzwz
