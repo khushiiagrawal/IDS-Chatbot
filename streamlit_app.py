@@ -95,7 +95,7 @@ if st.button("Send"):
 
         response = st.session_state.chatbot.get_response(user_input)
 
-        st.experimental_rerun()
+        st.rerun()
 
 
 chat_history = st.session_state.chatbot.get_chat_history()
@@ -121,4 +121,4 @@ for message in chat_history:
 
 if st.button("Clear Chat"):
     st.session_state.chatbot.clear_history()
-    st.experimental_rerun() 
+    st.rerun() 
