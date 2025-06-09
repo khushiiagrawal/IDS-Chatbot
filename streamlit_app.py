@@ -22,7 +22,7 @@ col1, col2, col3 = st.columns([1, 2, 1])
 with col1:
     # Display UPSIDA logo on the left
     try:
-        st.image("logoo.png", use_column_width=True)
+        st.image("logoo.png")
     except:
         st.info("🏢 UPSIDA")
 
