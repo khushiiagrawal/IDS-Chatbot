@@ -27,7 +27,7 @@ with col1:
         st.info("🏢 Logo")
 
 with col2:
-    st.markdown("## Customer Support Center")
+    st.markdown("## Complaint Resolution Chatbot")
     st.markdown("#### *AI-Powered Complaint Resolution System* ")
 
 st.markdown("---")
@@ -84,12 +84,11 @@ if st.session_state.chat_history:
 else:
     # Welcome message
 
-    st.markdown("### Welcome to Customer Support!")
+    st.markdown("### Welcome to our Complaint Resolution Chatbot! I'm here to help you with any issues or concerns you may have.")
     
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.markdown("**I can help you with:**")
         st.markdown("• 📝 Registering new complaints")
         st.markdown("• 📊 Checking complaint status")
         st.markdown("• ❓ Answering your questions")
