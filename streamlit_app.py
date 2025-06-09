@@ -33,7 +33,7 @@ with col2:
 st.markdown("---")
 
 # Input section
-st.markdown("### 💬 Send your complaint to our bot")
+st.markdown("### 💬 Send your message")
 
 with st.form(key="chat_form", clear_on_submit=True):
     user_input = st.text_area(
