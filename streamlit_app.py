@@ -84,7 +84,7 @@ if st.session_state.chat_history:
 else:
     # Welcome message
 
-    st.markdown("### Welcome to our Complaint Resolution Chatbot! We'll help you with any issues or concerns you may have.")
+    st.markdown("#### Welcome to our Complaint Resolution Chatbot! We'll help you with any issues or concerns you may have.")
     
     col1, col2 = st.columns([1, 1])
     
