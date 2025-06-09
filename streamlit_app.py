@@ -28,12 +28,12 @@ with col1:
 
 with col2:
     st.markdown("## Complaint Resolution Chatbot")
-    st.markdown("#### *AI-Powered Complaint Resolution System* ")
+    st.markdown("#### *AI-Powered Chatbot by UPSIDA* ")
 
 st.markdown("---")
 
 # Input section
-st.markdown("### 💬 Send your complaint to out Chatbot")
+st.markdown("### 💬 Send your complaint to our bot")
 
 with st.form(key="chat_form", clear_on_submit=True):
     user_input = st.text_area(
