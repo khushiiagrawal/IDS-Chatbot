@@ -124,9 +124,45 @@ class ComplaintResolutionChatbot:
 
             # Check if this is a new complaint or continuing conversation
             if not self.current_complaint_id:
-                # First, detect if this is a complaint
+                # First, check if this is related to customer service at all
+                relevance_check = self.model.generate_content(
+                    f"""Analyze this customer message to determine if it's relevant to CUSTOMER SERVICE and SUPPORT.
+
+                    RELEVANT customer service topics:
+                    - Product/service complaints, issues, or problems
+                    - Questions about YOUR products or services
+                    - Account, billing, or payment issues
+                    - Technical support for YOUR products
+                    - How-to questions about YOUR products/services
+                    - Order, delivery, or shipping inquiries
+                    - Return, refund, or warranty requests
+                    - Service setup or configuration help
+                    - User account or login problems
+                    
+                    NOT RELEVANT (reject these):
+                    - General knowledge questions (e.g., "what is MCP server", "explain blockchain")
+                    - Weather, news, entertainment, or unrelated topics
+                    - Technical definitions unrelated to your business
+                    - Academic or educational queries
+                    - Personal advice or general life questions
+                    - Programming help unrelated to your product
+                    - Random factual questions
+                    
+                    Customer message: {user_input}
+                    
+                    Respond with only: "RELEVANT" or "NOT_RELEVANT"
+                    """
+                ).text.strip()
+                
+                # If not relevant to customer service, politely redirect
+                if "NOT_RELEVANT" in relevance_check.upper():
+                    response_text = "I'm a customer service assistant designed to help with product issues, account problems, billing questions, and technical support. I can't assist with general knowledge questions or topics unrelated to our services. Please let me know if you have any questions about our products or need help with any service-related issues."
+                    self.chat_history.append({"role": "bot", "content": response_text})
+                    return response_text
+                
+                # If relevant, then detect if it's a complaint
                 complaint_detection = self.model.generate_content(
-                    f"""Analyze this customer message and determine if it's a COMPLAINT or just a general inquiry.
+                    f"""Analyze this customer service message and determine if it's a COMPLAINT or just a general inquiry about our products/services.
 
                     A COMPLAINT includes:
                     - Product not working, broken, or defective
@@ -137,11 +173,12 @@ class ComplaintResolutionChatbot:
                     - Dissatisfaction with products/services
                     - Something needs to be fixed or resolved
                     
-                    NOT a complaint:
-                    - General questions about products/services
+                    NOT a complaint (general inquiry):
+                    - Questions about product features or how to use them
+                    - Information requests about services
                     - How-to questions or usage instructions
-                    - Information requests
-                    - Casual greetings
+                    - General product information requests
+                    - Casual greetings or thank you messages
                     
                     Customer message: {user_input}
                     
@@ -151,35 +188,29 @@ class ComplaintResolutionChatbot:
                 
                 # Generate response with solutions
                 initial_response = self.model.generate_content(
-                    f"""You are a multilingual technical support chatbot that SOLVES customer problems and provides solutions. ALWAYS respond in the SAME language that the customer uses. If customer writes in Hindi, reply in Hindi. If customer writes in English, reply in English.
+                    f"""You are a customer service chatbot for a specific company/product. ALWAYS respond in the SAME language that the customer uses. If customer writes in Hindi, reply in Hindi. If customer writes in English, reply in English.
                     
-                    Your primary goal is to HELP and SOLVE problems while also tracking them properly.
+                    IMPORTANT: You can ONLY help with topics related to YOUR company's products and services. Do NOT answer general knowledge questions, technical definitions unrelated to your business, or off-topic queries.
                     
-                    When a customer has a problem:
-                    1. FIRST: Try to provide immediate solutions, troubleshooting steps, or helpful information
-                    2. SECOND: If you can't solve it immediately, guide them through step-by-step solutions
-                    3. Be empathetic and understanding
-                    4. Explain technical concepts in simple terms
-                    
-                    You can help with:
-                    - Technical problems and troubleshooting
+                    Your role is to provide customer support for:
+                    - Your company's products and services
+                    - Technical problems with YOUR products
+                    - Account, billing, or payment issues
                     - Product usage questions and how-to guides
-                    - Account issues and login problems
-                    - Billing questions and payment issues
                     - Service setup and configuration
-                    - General product information and features
-                    - Step-by-step problem resolution
+                    - Order, delivery, and shipping inquiries
+                    - Returns, refunds, and warranty support
                     
-                    Guidelines for helpful responses:
-                    - Provide specific, actionable solutions
-                    - Give step-by-step instructions when needed
-                    - Ask clarifying questions to better understand the problem
-                    - Offer multiple solution options when possible
-                    - Be empathetic and understanding
+                    When helping customers:
+                    1. FIRST: Try to provide immediate solutions or troubleshooting steps
+                    2. Be empathetic and understanding
+                    3. Ask clarifying questions about THEIR specific situation
+                    4. Provide step-by-step instructions when needed
+                    5. Stay focused on YOUR company's products/services
                     
                     Customer's message: {user_input}
                     
-                    Provide helpful solutions and assistance for their problem.
+                    Provide helpful customer service assistance related to your company's products and services.
                     """
                 ).text
                 
@@ -192,31 +223,27 @@ class ComplaintResolutionChatbot:
             else:
                 # This is a continuing conversation
                 response = self.model.generate_content(
-                    f"""You are continuing a multilingual technical support conversation to help solve the customer's problem. ALWAYS respond in the SAME language the customer is using. 
+                    f"""You are continuing a customer service conversation to help with the customer's issue. ALWAYS respond in the SAME language the customer is using. 
+                    
+                    IMPORTANT: Stay focused ONLY on customer service topics related to YOUR company's products and services. Do NOT answer general knowledge questions, technical definitions unrelated to your business, or off-topic queries.
                     
                     Previous conversation context:
                     {self.chat_history[-4:] if len(self.chat_history) > 4 else self.chat_history}
                     
                     Current message: {user_input}
                     
-                    Your goal is to SOLVE their problem, not just discuss it:
-                    - Provide specific solutions and troubleshooting steps
-                    - Ask clarifying questions to better understand their issue
+                    Your goal is to SOLVE their customer service issue:
+                    - Provide specific solutions and troubleshooting steps for YOUR products
+                    - Ask clarifying questions about their specific situation with YOUR services
                     - Offer alternative approaches if the first solution doesn't work
                     - Guide them step-by-step through problem resolution
-                    - Be patient and helpful
-                    - If they've tried your suggestions, offer more advanced solutions
-                    - Only escalate to complaint registration if absolutely necessary
+                    - Be patient and helpful with customer service matters
+                    - If they ask off-topic questions, politely redirect to customer service topics
+                    - Stay focused on solving THIS specific customer service problem
                     
-                    Guidelines for helpful responses:
-                    - Be solution-focused and actionable
-                    - Provide clear, easy-to-follow instructions
-                    - Show genuine understanding of their issue
-                    - Offer multiple solution options when possible
-                    - Use the same language they're communicating in
-                    - Stay focused on solving THIS specific problem
+                    If the customer asks something unrelated to customer service, politely say: "I'm here to help with customer service issues related to our products and services. Let's focus on resolving your original concern."
                     
-                    Continue helping them resolve their issue.
+                    Continue helping them resolve their customer service issue.
                     """
                 )
                 response_text = response.text
