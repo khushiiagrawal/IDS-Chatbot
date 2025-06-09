@@ -1,124 +1,105 @@
 import streamlit as st
 from app import ComplaintResolutionChatbot
 
-
-if 'chatbot' not in st.session_state:
-    st.session_state.chatbot = ComplaintResolutionChatbot()
-
-
+# Page configuration
 st.set_page_config(
-    page_title="Complaint Resolution Chatbot",
-    page_icon="💬",
+    page_title="Customer Support Chat",
+    page_icon="🤖",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
+# Initialize chatbot in session state
+if 'chatbot' not in st.session_state:
+    st.session_state.chatbot = ComplaintResolutionChatbot()
 
-st.markdown("""
-    <style>
-    .stApp {
-        max-width: 100%;
-        padding: 0;
-    }
-    .main {
-        padding: 0;
-    }
-    .stTextInput > div > div > input {
-        border-radius: 20px;
-        padding: 10px 20px;
-    }
-    .stButton > button {
-        border-radius: 20px;
-        padding: 10px 20px;
-        background-color: #4CAF50;
-        color: white;
-    }
-    .chat-message {
-        padding: 1.5rem;
-        border-radius: 0.5rem;
-        margin-bottom: 1rem;
-        display: flex;
-        flex-direction: column;
-    }
-    .chat-message.user {
-        background-color: #2b313e;
-    }
-    .chat-message.bot {
-        background-color: #475063;
-    }
-    .chat-message .content {
-        display: flex;
-        margin-top: 0.5rem;
-    }
-    .status-badge {
-        display: inline-block;
-        padding: 0.25rem 0.5rem;
-        border-radius: 0.25rem;
-        font-size: 0.875rem;
-        font-weight: 500;
-        margin-right: 0.5rem;
-    }
-    .status-open {
-        background-color: #dc2626;
-        color: white;
-    }
-    .status-progress {
-        background-color: #d97706;
-        color: white;
-    }
-    .status-resolved {
-        background-color: #059669;
-        color: white;
-    }
-    </style>
-""", unsafe_allow_html=True)
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
 
+# Logo and header in one line
+col1, col2 = st.columns([1, 3])
 
-st.title("💬 Complaint Resolution Chatbot")
-st.markdown("""
-    Welcome to our Complaint Resolution Chatbot! I'm here to help you with any issues or concerns you may have.
+with col1:
+    # Try to display logo, with fallback
+    try:
+        st.image("logoo.png")
+    except:
+        st.info("🏢 Logo")
+
+with col2:
+    st.markdown("## Customer Support Center")
+    st.markdown("#### *AI-Powered Complaint Resolution System* ")
+
+st.markdown("---")
+
+# Input section
+st.markdown("### 💬 Send your complaint to out Chatbot")
+
+with st.form(key="chat_form", clear_on_submit=True):
+    user_input = st.text_area(
+        label="",
+        placeholder="Type your complaint, question, or 'check status COMP-XXXXXX'",
+        key="user_message",
+        label_visibility="collapsed",
+        height=100
+    )
     
-    You can:
-    - Register a new complaint
-    - Check the status of an existing complaint using your complaint ID
-    - Get updates on your complaint resolution
+    col1, col2, col3 = st.columns([2, 1, 2])
+    with col2:
+        submitted = st.form_submit_button("Send Message", use_container_width=True)
+
+# Handle message
+if submitted and user_input.strip():
+    with st.spinner("🤖 Support Assistant is typing..."):
+        try:
+            reply = st.session_state.chatbot.get_response(user_input.strip())
+            st.session_state.chat_history.append({"role": "user", "content": user_input.strip()})
+            st.session_state.chat_history.append({"role": "bot", "content": reply})
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Something went wrong: {str(e)}")
+
+# Conversation history
+if st.session_state.chat_history:
+
+    st.markdown("### 💬 Conversation History")
     
-    Just type your message below to get started!
-""")
-
-
-user_input = st.text_input("Type your message here...", key="user_input")
-
-
-if st.button("Send"):
-    if user_input:
-
-        response = st.session_state.chatbot.get_response(user_input)
-
-        st.rerun()
-
-
-chat_history = st.session_state.chatbot.get_chat_history()
-for message in chat_history:
-    with st.container():
-        if message["role"] == "user":
-            st.markdown(f"""
-                <div class="chat-message user">
-                    <div class="content">
-                        <div style="color: white;">{message["content"]}</div>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
+    for i, msg in enumerate(st.session_state.chat_history):
+        if msg["role"] == "user":
+            # User message - simple container
+            st.info(f"**You:**\n\n{msg['content']}")
         else:
-            st.markdown(f"""
-                <div class="chat-message bot">
-                    <div class="content">
-                        <div style="color: white;">{message["content"]}</div>
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
+            # Bot message - simple container  
+            st.success(f"**🤖 Support Assistant:**\n\n{msg['content']}")
+    
+    # Clear chat button
+
+    col1, col2, col3 = st.columns([2, 1, 2])
+    with col2:
+        if st.button("Clear Chat", use_container_width=True):
+            st.session_state.chatbot.clear_history()
+            st.session_state.chat_history = []
+            st.rerun()
+
+else:
+    # Welcome message
+
+    st.markdown("### Welcome to Customer Support!")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.markdown("**I can help you with:**")
+        st.markdown("• 📝 Registering new complaints")
+        st.markdown("• 📊 Checking complaint status")
+        st.markdown("• ❓ Answering your questions")
+        st.markdown("• 🔄 Providing updates & solutions")
+    
+    with col2:
+        st.info("💡 **Quick Tips:**\n\n To check status: *'check status COMP-XXXXXX'*\n\n Be specific about your issue for faster resolution")
+    
 
 
-if st.button("Clear Chat"):
-    st.session_state.chatbot.clear_history()
-    st.rerun() 
+# Footer
+st.markdown("---")
+st.caption("🔒 Your privacy is protected | 🤖 Powered by AI | 🌐 24/7 Support Available")
