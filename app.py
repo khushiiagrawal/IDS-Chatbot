@@ -373,18 +373,42 @@ Complaint ID: {complaint_id}
                 
                 # If not relevant to real-world complaints, politely redirect
                 if "NOT_RELEVANT" in relevance_check.upper():
-                    response_text = "I'm a support assistant designed to help with real-world complaints, service issues, civic problems, and technical support. I can't assist with general knowledge questions or topics unrelated to real-world problems or services. Please let me know if you have any issues or concerns that need attention."
+                    response_text = "I'm a complaint resolution chatbot designed to help with real-world complaints and service issues. I can only assist with registering and resolving complaints. Please let me know if you have any specific complaints or issues that need attention."
                     self.chat_history.append({"role": "bot", "content": response_text})
                     return response_text
                 
                 # If relevant, then detect if it's a complaint
                 complaint_detection = self.model.generate_content(
-                    f"""Analyze this message and determine if it's a COMPLAINT (a report of a problem, issue, or something that needs to be fixed or resolved) or just a general inquiry.\n\nA COMPLAINT includes:\n- Product or service not working, broken, or defective\n- Service problems or poor experiences\n- Billing or payment issues\n- Delivery or shipping problems\n- Account or technical problems\n- Dissatisfaction with products/services\n- Infrastructure or civic issues (e.g., potholes, broken streetlights, sanitation, water, electricity, roads, public safety, garbage, pollution, noise, etc.)\n- Any report of a real-world problem that needs to be fixed or resolved\n\nNOT a complaint (general inquiry):\n- Questions about product or service features or how to use them\n- Information requests about services\n- How-to questions or usage instructions\n- General information requests\n- Casual greetings or thank you messages\n\nCustomer message: {user_input}\n\nRespond with only: 'COMPLAINT' or 'INQUIRY'\n"""
+                    f"""Analyze this message and determine if it's a COMPLAINT (a report of a problem, issue, or something that needs to be fixed or resolved) or just a general inquiry.\n\nA COMPLAINT includes:\n- Product or service not working, broken, or defective\n- Service problems or poor experiences\n- Billing or payment issues\n- Delivery or shipping problems\n- Account or technical problems\n- Dissatisfaction with products/services\n- Infrastructure or civic issues (e.g., potholes, broken streetlights, sanitation, water, electricity, roads, public safety, garbage, pollution, noise, etc.)\n- Any report of a real-world problem that needs to be fixed or resolved\n\nNOT a complaint (general inquiry):\n- Questions about product or service features or how to use them\n- Information requests about services\n- How-to questions or usage instructions\n- General information requests\n- Casual greetings or thank you messages\n- General knowledge questions\n- Technical definitions\n- Academic or educational queries\n\nCustomer message: {user_input}\n\nRespond with only: 'COMPLAINT' or 'INQUIRY'\n"""
                 ).text.strip()
                 
                 # Generate response with solutions
                 initial_response = self.model.generate_content(
-                    f"""You are a support assistant for handling all types of real-world complaints and service issues, including civic, infrastructure, and public service problems. ALWAYS respond in the SAME language that the customer uses.\n\nIMPORTANT: You can help with any real-world complaint, service issue, or civic problem. Do NOT answer general knowledge questions, technical definitions unrelated to real-world services, or off-topic queries.\n\nDo NOT ask the user for photos, images, or videos, as this feature is not supported. Only ask for text-based details.\n\nYour role is to provide support for:\n- Any real-world complaint or problem\n- Technical problems with products or services\n- Account, billing, or payment issues\n- Product or service usage questions and how-to guides\n- Service setup and configuration\n- Order, delivery, and shipping inquiries\n- Returns, refunds, and warranty support\n- Infrastructure or civic complaints (e.g., potholes, streetlights, sanitation, water, electricity, roads, public safety, garbage, pollution, noise, etc.)\n\nWhen helping customers:\n1. FIRST: Try to provide immediate solutions, troubleshooting steps, or next actions\n2. Be empathetic and understanding\n3. Ask clarifying questions about THEIR specific situation\n4. Provide step-by-step instructions or explain how the complaint will be handled\n5. Stay focused on resolving the real-world problem or complaint\n\nCustomer's message: {user_input}\n\nOnce you have the required information, tell the user you will log a complaint with the appropriate authority and provide a reference number for tracking its progress.\n\nProvide helpful support and register the complaint if appropriate.\n"""
+                    f"""You are a complaint resolution chatbot. Your ONLY purpose is to help users register and resolve their complaints. ALWAYS respond in the SAME language that the customer uses.
+
+IMPORTANT: 
+1. ONLY handle real-world complaints and service issues
+2. Do NOT answer general knowledge questions, technical definitions, or off-topic queries
+3. Do NOT provide general information or how-to guides
+4. Focus ONLY on complaint registration and resolution
+
+Your role is LIMITED to:
+- Registering new complaints
+- Collecting necessary information for complaint resolution
+- Providing status updates on existing complaints
+- Escalating complaints when needed
+- Marking complaints as resolved
+
+When helping customers:
+1. FIRST: Determine if this is a legitimate complaint
+2. If it's a complaint: Collect necessary details (name, contact, address)
+3. If it's not a complaint: Politely redirect to complaint-related topics
+4. Stay focused ONLY on complaint resolution
+
+Customer's message: {user_input}
+
+If this is a legitimate complaint, tell the user you will register it and provide a reference number for tracking. If it's not a complaint, politely redirect them to focus on their complaint.
+"""
                 ).text
                 
                 # Create complaint ID if this is a legitimate complaint

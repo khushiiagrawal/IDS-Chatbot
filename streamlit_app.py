@@ -92,18 +92,18 @@ if st.session_state.chat_history:
 else:
     # Welcome message
 
-    st.markdown("#### Welcome to our Complaint Resolution Chatbot! We'll help you with any issues or concerns you may have.")
+    st.markdown("#### Welcome to our Complaint Resolution Chatbot! We're here to help you register and resolve your complaints.")
     
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.markdown("• 📝 Registering new complaints")
-        st.markdown("• 📊 Checking complaint status")
-        st.markdown("• ❓ Answering your questions")
-        st.markdown("• 🔄 Providing updates & solutions")
+        st.markdown("• 📝 Register new complaints")
+        st.markdown("• 📊 Check complaint status")
+        st.markdown("• 🔄 Get updates on your complaint")
+        st.markdown("• ✅ Mark complaints as resolved")
     
     with col2:
-        st.info("💡 **Quick Tips:**\n\n To check status: *'check status COMP-XXXXXX'*\n\n Be specific about your issue for faster resolution")
+        st.info("💡 **Quick Tips:**\n\n To check status: *'check status COMP-XXXXXX'*\n\n Please provide specific details about your complaint for faster resolution")
     
 
 
