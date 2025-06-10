@@ -3,6 +3,9 @@ from dotenv import load_dotenv
 import os
 from complaint_db import ComplaintDatabase
 from datetime import datetime
+import smtplib
+from email.mime.text import MIMEText
+import re
 
 class ComplaintResolutionChatbot:
     def __init__(self):
@@ -17,6 +20,11 @@ class ComplaintResolutionChatbot:
         self.chat_history = []
         self.db = ComplaintDatabase()
         self.current_complaint_id = None
+        # Store user info in session
+        self.user_info = {'name': None, 'mobile': None, 'address': None}
+        self.complaint_state = 'idle'  # idle, awaiting_info, open, escalation_pending, resolved
+        self.last_complaint_message = None
+        self.clarification_turns = 0
 
     def format_timestamp(self, iso_timestamp):
         """Format ISO timestamp to Indian Standard Time"""
@@ -31,6 +39,80 @@ class ComplaintResolutionChatbot:
         
         return dt_ist.strftime("%B %d, %Y at %I:%M %p IST")
 
+    def send_complaint_email(self, name, mobile, address, complaint, complaint_id):
+        sender_email = os.getenv('SENDER_EMAIL')
+        sender_password = os.getenv('SENDER_PASSWORD')
+        recipient_email = 'khushisaritaagrawal@gmail.com'
+        subject = f'New Complaint Registered: {complaint_id}'
+        body = f"""
+Name: {name}
+Mobile: {mobile}
+Address: {address}
+Complaint: {complaint}
+Complaint ID: {complaint_id}
+"""
+        msg = MIMEText(body)
+        msg['Subject'] = subject
+        msg['From'] = sender_email
+        msg['To'] = recipient_email
+        try:
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+                server.login(sender_email, sender_password)
+                server.send_message(msg)
+        except Exception as e:
+            print(f"Failed to send email: {e}")
+
+    def extract_user_info(self, user_input):
+        # Extract mobile number (10+ digits)
+        mobile_match = re.search(r'(\d{10,})', user_input)
+        if mobile_match:
+            self.user_info['mobile'] = mobile_match.group(1)
+        # Extract name
+        name_match = re.search(r'(?:my name is|name is|name)\s*([a-zA-Z ]+)', user_input, re.IGNORECASE)
+        if name_match:
+            self.user_info['name'] = name_match.group(1).strip().replace(',', '')
+        elif 'name' in user_input.lower() and not self.user_info['name']:
+            # Try to get name before 'number' or 'mobile'
+            parts = re.split(r'number|mobile', user_input, flags=re.IGNORECASE)
+            if len(parts) > 1:
+                self.user_info['name'] = parts[0].replace('name', '').replace(':', '').strip().replace(',', '')
+        # Improved address extraction: capture everything after 'address:' or 'address is' or 'adderss' or at the end
+        address_match = re.search(r'(?:address is|adderss is|address:|adderss:|address|adderss)\s*([a-zA-Z0-9 ,\-/]+)', user_input, re.IGNORECASE)
+        if address_match:
+            self.user_info['address'] = address_match.group(1).strip()
+        elif 'address' in user_input.lower() or 'adderss' in user_input.lower():
+            # Try to get address after number
+            parts = re.split(r'number\s*\d{10,}', user_input, flags=re.IGNORECASE)
+            if len(parts) > 1:
+                self.user_info['address'] = parts[1].replace('address', '').replace('adderss', '').replace(':', '').strip().replace(',', '')
+        # Fallback: if message has 3 comma-separated values, guess order
+        if ',' in user_input and (not self.user_info['name'] or not self.user_info['mobile'] or not self.user_info['address']):
+            parts = [p.strip() for p in user_input.split(',')]
+            for part in parts:
+                if not self.user_info['name'] and part.lower().startswith('my name'):
+                    self.user_info['name'] = part.split()[-1]
+                elif not self.user_info['mobile'] and re.search(r'\d{10,}', part):
+                    self.user_info['mobile'] = re.search(r'\d{10,}', part).group(0)
+                elif not self.user_info['address'] and ('address' in part.lower() or 'adderss' in part.lower()):
+                    # Take everything after 'address' or 'adderss'
+                    addr = re.split(r'address|adderss', part, flags=re.IGNORECASE)[-1]
+                    self.user_info['address'] = addr.replace(':', '').strip()
+                elif not self.user_info['address'] and not self.user_info['mobile'] and not self.user_info['name']:
+                    # If only one left, treat as address
+                    self.user_info['address'] = part
+
+    def is_new_topic(self, new_msg, last_msg):
+        if not last_msg:
+            return True
+        # If the new message is a clear new question (starts with 'what', 'how', 'why', etc.) and shares very few words, treat as new topic
+        question_words = ['what', 'how', 'why', 'where', 'when', 'who']
+        new_words = set(new_msg.lower().split())
+        last_words = set(last_msg.lower().split())
+        shared = new_words & last_words
+        if any(new_msg.lower().startswith(qw) for qw in question_words) and len(shared) / max(1, len(new_words | last_words)) < 0.2:
+            return True
+        return False
+
     def get_response(self, user_input):
         """
         Get a response from the chatbot for the given user input.
@@ -43,9 +125,169 @@ class ComplaintResolutionChatbot:
         """
         try:
             self.chat_history.append({"role": "user", "content": user_input})
+            # Always try to extract user info from the latest message
+            self.extract_user_info(user_input)
+
+            # Improved topic change detection: only reset if the new message is truly unrelated
+            if self.is_new_topic(user_input, self.last_complaint_message):
+                self.last_complaint_message = user_input
+                self.complaint_state = 'idle'
+                self.clarification_turns = 0
+                self.user_info = {'name': None, 'mobile': None, 'address': None}
+
+            # Only set the complaint message if it is not already set and the message is not just user info
+            info_keywords = ['name', 'mobile', 'number', 'address', 'adderss']
+            if self.last_complaint_message is None and not all(kw in user_input.lower() for kw in info_keywords):
+                self.last_complaint_message = user_input
+                self.clarification_turns = 0  # Reset on new complaint
+
+            # When generating a response, always pass the last few turns of conversation as context
+            conversation_context = ''
+            for msg in self.chat_history[-6:]:
+                role = 'User' if msg['role'] == 'user' else 'Assistant'
+                conversation_context += f"{role}: {msg['content']}\n"
+
+            if self.complaint_state in ['idle', 'open', 'awaiting_info'] and self.last_complaint_message:
+                # Use Gemini to try to resolve the complaint
+                solution_response = self.model.generate_content(
+                    f"""You are a support assistant. Always reply in the same language as the user's last message. If the user writes in Hindi, reply in Hindi. If the user writes in English, reply in English.\nWhen a user asks a question or makes a request, always provide a direct, helpful answer, best practices, or a typical list of requirements based on your general knowledge—even if you don't have all the specifics. If you don't have enough information for a specific answer, always provide a general, practical tip or best-practice suggestion for the topic at hand. Never just say you need more info—always give a helpful tip or next step. Only escalate if it is absolutely necessary or the user specifically asks for escalation or says the problem is unresolved. If escalation is needed, respond with only: 'ESCALATE'.\n\nConversation so far:\n{conversation_context}\n"""
+                ).text.strip()
+                clarification_phrases = ['more information', 'please provide', 'could you tell me', 'i need some more information', 'to help me assist you better']
+                is_clarification = any(phrase in solution_response.lower() for phrase in clarification_phrases)
+                if solution_response == 'ESCALATE':
+                    self.complaint_state = 'escalation_pending'
+                    self.clarification_turns = 0  # Reset on escalation
+                elif is_clarification:
+                    self.clarification_turns += 1
+                    if self.clarification_turns > 1:
+                        self.complaint_state = 'escalation_pending'
+                        self.clarification_turns = 0
+                        # Use Gemini to generate a general summary/next step for the current context
+                        summary_response = self.model.generate_content(
+                            f"""Given the following conversation, provide a general next step, helpful tip, or best-effort answer for the user's issue, even if you don't have all the specifics. Do NOT mention any specific industry or problem unless the user did.\n\nConversation so far:\n{conversation_context}\n"""
+                        ).text.strip()
+                        self.chat_history.append({"role": "bot", "content": summary_response})
+                        return summary_response
+                    else:
+                        self.complaint_state = 'open'
+                        self.chat_history.append({"role": "bot", "content": solution_response})
+                        return solution_response
+                else:
+                    self.complaint_state = 'open'
+                    self.clarification_turns = 0
+                    self.chat_history.append({"role": "bot", "content": solution_response})
+                    return solution_response
+
+            # If all user info is present and the user has provided a complaint description/location, log and escalate immediately
+            if (self.user_info['name'] and self.user_info['mobile'] and self.user_info['address'] and self.last_complaint_message and self.complaint_state == 'escalation_pending'):
+                self.current_complaint_id = self.db.add_complaint(self.last_complaint_message, "Complaint registered and escalated.")
+                self.send_complaint_email(
+                    self.user_info['name'],
+                    self.user_info['mobile'],
+                    self.user_info['address'],
+                    self.last_complaint_message,
+                    self.current_complaint_id
+                )
+                response_text = (
+                    f"Thank you for providing the details. Your complaint has been registered and escalated for further help.\n\n"
+                    f"Complaint ID: {self.current_complaint_id}\n"
+                    f"Name: {self.user_info['name']}\n"
+                    f"Mobile: {self.user_info['mobile']}\n"
+                    f"Address: {self.user_info['address']}\n"
+                    f"Complaint: {self.last_complaint_message}\n"
+                    "We have also informed the concerned authority at khushisaritaagrawal@gmail.com for further action. "
+                    "You will be updated on the progress."
+                )
+                self.complaint_state = 'resolved'
+                self.chat_history.append({"role": "bot", "content": response_text})
+                return response_text
+
+            # Always check for missing user info before escalation or logging
+            if self.complaint_state == 'escalation_pending':
+                missing = []
+                if not self.user_info['name']:
+                    missing.append('name')
+                if not self.user_info['mobile']:
+                    missing.append('mobile number')
+                if not self.user_info['address']:
+                    missing.append('address')
+                if missing:
+                    return ("To log and escalate your complaint, please provide the following details in one message: "
+                            + ', '.join(missing) + ". (e.g., 'My name is Rahul Sharma, my mobile number is 9876543210, my address is 123 Main Street, Kanpur')\n"
+                            "Once I have this information, I will register your complaint, provide you with a complaint ID, and notify the concerned authority.")
+
+            # If in the middle of a complaint, maintain context
+            if self.complaint_state in ['awaiting_info', 'open', 'escalation_pending']:
+                # Use LLM to check if more info is needed, escalation is needed, or resolved
+                state_check = self.model.generate_content(
+                    f"""Analyze this conversation and the latest user message.\n\nConversation history:\n{self.chat_history[-6:] if len(self.chat_history) > 6 else self.chat_history}\n\nCustomer's latest message: {user_input}\n\nDecide the next state:\n- If you need more information from the user to proceed, respond with only: 'AWAITING_INFO'.\n- If the problem is unresolved and needs escalation, respond with only: 'ESCALATION_PENDING'.\n- If the problem is resolved, respond with only: 'RESOLVED'.\n- If the user is off-topic, respond with only: 'OFF_TOPIC'.\n- Otherwise, respond with only: 'OPEN'.\n"""
+                ).text.strip().upper()
+                if state_check == 'AWAITING_INFO':
+                    self.complaint_state = 'awaiting_info'
+                    # Ask for more info (LLM-generated)
+                    info_prompt = self.model.generate_content(
+                        f"""Given this conversation, ask the user for any additional details needed to proceed with their complaint.\n\nConversation history:\n{self.chat_history[-6:] if len(self.chat_history) > 6 else self.chat_history}\n\nCustomer's latest message: {user_input}\n"""
+                    ).text
+                    self.chat_history.append({"role": "bot", "content": info_prompt})
+                    return info_prompt
+                elif state_check == 'ESCALATION_PENDING':
+                    self.complaint_state = 'escalation_pending'
+                    # Check for missing user info (all at once)
+                    missing = []
+                    if not self.user_info['name']:
+                        missing.append('name')
+                    if not self.user_info['mobile']:
+                        missing.append('mobile number')
+                    if not self.user_info['address']:
+                        missing.append('address')
+                    if missing:
+                        return ("To log and escalate your complaint, please provide the following details in one message: "
+                                + ', '.join(missing) + ". (e.g., 'My name is Rahul Sharma, my mobile number is 9876543210, my address is 123 Main Street, Kanpur')\n"
+                                "Once I have this information, I will register your complaint, provide you with a complaint ID, and notify the concerned authority.")
+                    # If all info present, register complaint and send email
+                    self.current_complaint_id = self.db.add_complaint(user_input, "Complaint registered and escalated.")
+                    self.send_complaint_email(
+                        self.user_info['name'],
+                        self.user_info['mobile'],
+                        self.user_info['address'],
+                        user_input,
+                        self.current_complaint_id
+                    )
+                    response_text = (
+                        f"Thank you for providing the details. Your complaint has been registered and escalated for further help.\n\n"
+                        f"Complaint ID: {self.current_complaint_id}\n"
+                        f"Name: {self.user_info['name']}\n"
+                        f"Mobile: {self.user_info['mobile']}\n"
+                        f"Address: {self.user_info['address']}\n"
+                        f"Complaint: {user_input}\n"
+                        "We have also informed the concerned authority at khushisaritaagrawal@gmail.com for further action. "
+                        "You will be updated on the progress."
+                    )
+                    self.complaint_state = 'resolved'
+                    self.chat_history.append({"role": "bot", "content": response_text})
+                    return response_text
+                elif state_check == 'RESOLVED':
+                    self.complaint_state = 'resolved'
+                    response_text = "Thank you for confirming. Your complaint has been marked as resolved. If you need further assistance, please let me know."
+                    self.chat_history.append({"role": "bot", "content": response_text})
+                    return response_text
+                elif state_check == 'OFF_TOPIC':
+                    self.complaint_state = 'idle'
+                    response_text = "I'm a support assistant designed to help with real-world complaints, service issues, civic problems, and technical support. I can't assist with general knowledge questions or topics unrelated to real-world problems or services. Please let me know if you have any issues or concerns that need attention."
+                    self.chat_history.append({"role": "bot", "content": response_text})
+                    return response_text
+                else:
+                    self.complaint_state = 'open'
+                    # Continue the conversation (LLM-generated)
+                    continue_prompt = self.model.generate_content(
+                        f"""Continue helping the user with their complaint based on the conversation so far.\n\nConversation history:\n{self.chat_history[-6:] if len(self.chat_history) > 6 else self.chat_history}\n\nCustomer's latest message: {user_input}\n"""
+                    ).text
+                    self.chat_history.append({"role": "bot", "content": continue_prompt})
+                    return continue_prompt
 
             # Handle manual resolution
             if any(phrase in user_input.lower() for phrase in ["mark as resolved", "issue is resolved", "problem is fixed", "it's working now", "it works now", "complaint is resolved", "resolved"]):
+                self.complaint_state = 'resolved'
                 # Check if user mentioned a specific complaint ID
                 complaint_id_to_resolve = None
                 words = user_input.split()
@@ -89,7 +331,7 @@ class ComplaintResolutionChatbot:
                             conversation = self.db.get_conversation_history(word)
 
                             response_text = f"I've found your complaint {word}.\n\n"
-                            
+              
                             status_emoji = {
                                 "Open": "🔴",
                                 "In Progress": "🟡",
@@ -102,7 +344,7 @@ class ComplaintResolutionChatbot:
                             
                             if complaint['resolution']:
                                 response_text += f"\nResolution: {complaint['resolution']}\n"
-                            
+                
                             if conversation:
                                 response_text += "\nRecent Updates:\n"
 
@@ -123,101 +365,33 @@ class ComplaintResolutionChatbot:
                 return response_text
 
             # Check if this is a new complaint or continuing conversation
-            if not self.current_complaint_id:
-                # First, check if this is related to customer service at all
+            if not self.current_complaint_id or self.complaint_state == 'idle':
+                # First, check if this is related to any real-world complaint or service issue
                 relevance_check = self.model.generate_content(
-                    f"""Analyze this customer message to determine if it's relevant to CUSTOMER SERVICE and SUPPORT.
-
-                    RELEVANT customer service topics:
-                    - Product/service complaints, issues, or problems
-                    - Questions about YOUR products or services
-                    - Account, billing, or payment issues
-                    - Technical support for YOUR products
-                    - How-to questions about YOUR products/services
-                    - Order, delivery, or shipping inquiries
-                    - Return, refund, or warranty requests
-                    - Service setup or configuration help
-                    - User account or login problems
-                    
-                    NOT RELEVANT (reject these):
-                    - General knowledge questions (e.g., "what is MCP server", "explain blockchain")
-                    - Weather, news, entertainment, or unrelated topics
-                    - Technical definitions unrelated to your business
-                    - Academic or educational queries
-                    - Personal advice or general life questions
-                    - Programming help unrelated to your product
-                    - Random factual questions
-                    
-                    Customer message: {user_input}
-                    
-                    Respond with only: "RELEVANT" or "NOT_RELEVANT"
-                    """
+                    f"""Analyze this customer message to determine if it describes a REAL-WORLD COMPLAINT, PROBLEM, or SERVICE ISSUE that should be handled by a support or civic assistant. This includes any report of something not working, broken, unsafe, missing, or needing attention, whether it's about products, services, infrastructure, public facilities, civic issues, or community problems.\n\nRELEVANT complaint topics:\n- Product or service complaints, issues, or problems\n- Account, billing, or payment issues\n- Technical support for products or services\n- How-to questions about products/services\n- Order, delivery, or shipping inquiries\n- Return, refund, or warranty requests\n- Service setup or configuration help\n- User account or login problems\n- Infrastructure or civic complaints (e.g., potholes, streetlights, sanitation, water, electricity, roads, public safety, garbage, pollution, noise, etc.)\n- Any report of a real-world problem that needs to be fixed or resolved\n\nNOT RELEVANT (reject these):\n- General knowledge questions (e.g., 'what is MCP server', 'explain blockchain')\n- Weather, news, entertainment, or unrelated topics\n- Technical definitions unrelated to any real-world service\n- Academic or educational queries\n- Personal advice or general life questions\n- Programming help unrelated to a real-world service\n- Random factual questions\n\nCustomer message: {user_input}\n\nRespond with only: 'RELEVANT' or 'NOT_RELEVANT'\n"""
                 ).text.strip()
                 
-                # If not relevant to customer service, politely redirect
+                # If not relevant to real-world complaints, politely redirect
                 if "NOT_RELEVANT" in relevance_check.upper():
-                    response_text = "I'm a customer service assistant designed to help with product issues, account problems, billing questions, and technical support. I can't assist with general knowledge questions or topics unrelated to our services. Please let me know if you have any questions about our products or need help with any service-related issues."
+                    response_text = "I'm a support assistant designed to help with real-world complaints, service issues, civic problems, and technical support. I can't assist with general knowledge questions or topics unrelated to real-world problems or services. Please let me know if you have any issues or concerns that need attention."
                     self.chat_history.append({"role": "bot", "content": response_text})
                     return response_text
                 
                 # If relevant, then detect if it's a complaint
                 complaint_detection = self.model.generate_content(
-                    f"""Analyze this customer service message and determine if it's a COMPLAINT or just a general inquiry about our products/services.
-
-                    A COMPLAINT includes:
-                    - Product not working, broken, or defective
-                    - Service problems or poor experiences  
-                    - Billing or payment issues
-                    - Delivery or shipping problems
-                    - Account or technical problems
-                    - Dissatisfaction with products/services
-                    - Something needs to be fixed or resolved
-                    
-                    NOT a complaint (general inquiry):
-                    - Questions about product features or how to use them
-                    - Information requests about services
-                    - How-to questions or usage instructions
-                    - General product information requests
-                    - Casual greetings or thank you messages
-                    
-                    Customer message: {user_input}
-                    
-                    Respond with only: "COMPLAINT" or "INQUIRY"
-                    """
+                    f"""Analyze this message and determine if it's a COMPLAINT (a report of a problem, issue, or something that needs to be fixed or resolved) or just a general inquiry.\n\nA COMPLAINT includes:\n- Product or service not working, broken, or defective\n- Service problems or poor experiences\n- Billing or payment issues\n- Delivery or shipping problems\n- Account or technical problems\n- Dissatisfaction with products/services\n- Infrastructure or civic issues (e.g., potholes, broken streetlights, sanitation, water, electricity, roads, public safety, garbage, pollution, noise, etc.)\n- Any report of a real-world problem that needs to be fixed or resolved\n\nNOT a complaint (general inquiry):\n- Questions about product or service features or how to use them\n- Information requests about services\n- How-to questions or usage instructions\n- General information requests\n- Casual greetings or thank you messages\n\nCustomer message: {user_input}\n\nRespond with only: 'COMPLAINT' or 'INQUIRY'\n"""
                 ).text.strip()
                 
                 # Generate response with solutions
                 initial_response = self.model.generate_content(
-                    f"""You are a customer service chatbot for a specific company/product. ALWAYS respond in the SAME language that the customer uses. If customer writes in Hindi, reply in Hindi. If customer writes in English, reply in English.
-                    
-                    IMPORTANT: You can ONLY help with topics related to YOUR company's products and services. Do NOT answer general knowledge questions, technical definitions unrelated to your business, or off-topic queries.
-                    
-                    Your role is to provide customer support for:
-                    - Your company's products and services
-                    - Technical problems with YOUR products
-                    - Account, billing, or payment issues
-                    - Product usage questions and how-to guides
-                    - Service setup and configuration
-                    - Order, delivery, and shipping inquiries
-                    - Returns, refunds, and warranty support
-                    
-                    When helping customers:
-                    1. FIRST: Try to provide immediate solutions or troubleshooting steps
-                    2. Be empathetic and understanding
-                    3. Ask clarifying questions about THEIR specific situation
-                    4. Provide step-by-step instructions when needed
-                    5. Stay focused on YOUR company's products/services
-                    
-                    Customer's message: {user_input}
-                    
-                    Provide helpful customer service assistance related to your company's products and services.
-                    """
+                    f"""You are a support assistant for handling all types of real-world complaints and service issues, including civic, infrastructure, and public service problems. ALWAYS respond in the SAME language that the customer uses.\n\nIMPORTANT: You can help with any real-world complaint, service issue, or civic problem. Do NOT answer general knowledge questions, technical definitions unrelated to real-world services, or off-topic queries.\n\nDo NOT ask the user for photos, images, or videos, as this feature is not supported. Only ask for text-based details.\n\nYour role is to provide support for:\n- Any real-world complaint or problem\n- Technical problems with products or services\n- Account, billing, or payment issues\n- Product or service usage questions and how-to guides\n- Service setup and configuration\n- Order, delivery, and shipping inquiries\n- Returns, refunds, and warranty support\n- Infrastructure or civic complaints (e.g., potholes, streetlights, sanitation, water, electricity, roads, public safety, garbage, pollution, noise, etc.)\n\nWhen helping customers:\n1. FIRST: Try to provide immediate solutions, troubleshooting steps, or next actions\n2. Be empathetic and understanding\n3. Ask clarifying questions about THEIR specific situation\n4. Provide step-by-step instructions or explain how the complaint will be handled\n5. Stay focused on resolving the real-world problem or complaint\n\nCustomer's message: {user_input}\n\nOnce you have the required information, tell the user you will log a complaint with the appropriate authority and provide a reference number for tracking its progress.\n\nProvide helpful support and register the complaint if appropriate.\n"""
                 ).text
                 
                 # Create complaint ID if this is a legitimate complaint
                 if "COMPLAINT" in complaint_detection.upper():
-                    self.current_complaint_id = self.db.add_complaint(user_input, initial_response)
-                    response_text = initial_response + f"\n\nI've registered your concern with complaint ID: {self.current_complaint_id}. Please save this ID to check status or follow up on this issue anytime."
+                    self.complaint_state = 'open'
+                    # Try to resolve the complaint first, do not ask for user info or send email yet
+                    response_text = initial_response + "\n\nIf this does not resolve your issue or you need further help, please reply and I will escalate your complaint for further assistance."
                 else:
                     response_text = initial_response
             else:
@@ -233,7 +407,7 @@ class ComplaintResolutionChatbot:
                     Current message: {user_input}
                     
                     Your goal is to SOLVE their customer service issue:
-                    - Provide specific solutions and troubleshooting steps for YOUR products
+                    - Provide specific solutions and troubleshooting steps for YOUR products ()
                     - Ask clarifying questions about their specific situation with YOUR services
                     - Offer alternative approaches if the first solution doesn't work
                     - Guide them step-by-step through problem resolution
@@ -247,7 +421,7 @@ class ComplaintResolutionChatbot:
                     """
                 )
                 response_text = response.text
-
+ 
                 # Check if the issue has been resolved based on the conversation
                 resolution_check = self.model.generate_content(
                     f"""Analyze this conversation to determine if the customer's problem has been RESOLVED or is still ONGOING.
@@ -274,7 +448,7 @@ class ComplaintResolutionChatbot:
                 # Add to conversation history in database
                 self.db.add_to_conversation(self.current_complaint_id, "user", user_input)
                 self.db.add_to_conversation(self.current_complaint_id, "bot", response_text)
-                
+            
                 # Update complaint status if resolved
                 if "RESOLVED" in resolution_check.upper():
                     self.db.update_complaint_status(
