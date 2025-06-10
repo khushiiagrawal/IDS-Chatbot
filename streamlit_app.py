@@ -17,7 +17,7 @@ if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 
 # Logo and header in one line
-col1, col2, col3 = st.columns([1, 2, 1])
+col1, col2 = st.columns([1, 2])
 
 with col1:
     # Display UPSIDA logo on the left
@@ -29,14 +29,6 @@ with col1:
 with col2:
     st.markdown("## Complaint Resolution Chatbot")
     st.markdown("#### *AI-Powered Chatbot by UPSIDA* ")
-
-with col3:
-    # Display kratitech logo on the right
-    try:
-        st.image("kratitech.jpeg", width=130)
-    except:
-        st.info("🏢 KratiTech")
-    
 
 st.markdown("---")
 
