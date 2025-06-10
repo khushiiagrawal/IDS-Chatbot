@@ -373,13 +373,13 @@ Complaint ID: {complaint_id}
                 
                 # If not relevant to real-world complaints, politely redirect
                 if "NOT_RELEVANT" in relevance_check.upper():
-                    response_text = "I'm a complaint resolution chatbot designed to help with real-world complaints and service issues. I can only assist with registering and resolving complaints. Please let me know if you have any specific complaints or issues that need attention."
+                    response_text = "I am a complaint resolution chatbot. I can only help you with registering and resolving real-world complaints. I cannot answer general questions, provide programming help, or assist with non-complaint related topics. Please let me know if you have any specific complaints that need to be registered."
                     self.chat_history.append({"role": "bot", "content": response_text})
                     return response_text
                 
                 # If relevant, then detect if it's a complaint
                 complaint_detection = self.model.generate_content(
-                    f"""Analyze this message and determine if it's a COMPLAINT (a report of a problem, issue, or something that needs to be fixed or resolved) or just a general inquiry.\n\nA COMPLAINT includes:\n- Product or service not working, broken, or defective\n- Service problems or poor experiences\n- Billing or payment issues\n- Delivery or shipping problems\n- Account or technical problems\n- Dissatisfaction with products/services\n- Infrastructure or civic issues (e.g., potholes, broken streetlights, sanitation, water, electricity, roads, public safety, garbage, pollution, noise, etc.)\n- Any report of a real-world problem that needs to be fixed or resolved\n\nNOT a complaint (general inquiry):\n- Questions about product or service features or how to use them\n- Information requests about services\n- How-to questions or usage instructions\n- General information requests\n- Casual greetings or thank you messages\n- General knowledge questions\n- Technical definitions\n- Academic or educational queries\n\nCustomer message: {user_input}\n\nRespond with only: 'COMPLAINT' or 'INQUIRY'\n"""
+                    f"""Analyze this message and determine if it's a COMPLAINT (a report of a problem, issue, or something that needs to be fixed or resolved) or just a general inquiry.\n\nA COMPLAINT includes:\n- Product or service not working, broken, or defective\n- Service problems or poor experiences\n- Billing or payment issues\n- Delivery or shipping problems\n- Account or technical problems\n- Dissatisfaction with products/services\n- Infrastructure or civic issues (e.g., potholes, broken streetlights, sanitation, water, electricity, roads, public safety, garbage, pollution, noise, etc.)\n- Any report of a real-world problem that needs to be fixed or resolved\n\nNOT a complaint (general inquiry):\n- Questions about product or service features or how to use them\n- Information requests about services\n- How-to questions or usage instructions\n- General information requests\n- Casual greetings or thank you messages\n- General knowledge questions\n- Technical definitions\n- Academic or educational queries\n- Programming questions or code examples\n- Software development help\n- Algorithm or data structure questions\n- Any non-complaint related technical questions\n\nCustomer message: {user_input}\n\nRespond with only: 'COMPLAINT' or 'INQUIRY'\n"""
                 ).text.strip()
                 
                 # Generate response with solutions
@@ -390,7 +390,9 @@ IMPORTANT:
 1. ONLY handle real-world complaints and service issues
 2. Do NOT answer general knowledge questions, technical definitions, or off-topic queries
 3. Do NOT provide general information or how-to guides
-4. Focus ONLY on complaint registration and resolution
+4. Do NOT provide programming help or code examples
+5. Do NOT answer questions about software development
+6. Focus ONLY on complaint registration and resolution
 
 Your role is LIMITED to:
 - Registering new complaints
@@ -407,7 +409,7 @@ When helping customers:
 
 Customer's message: {user_input}
 
-If this is a legitimate complaint, tell the user you will register it and provide a reference number for tracking. If it's not a complaint, politely redirect them to focus on their complaint.
+If this is a legitimate complaint, tell the user you will register it and provide a reference number for tracking. If it's not a complaint, politely redirect them to focus on their complaint and explain that you can only help with complaint registration and resolution.
 """
                 ).text
                 
